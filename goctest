@@ -2,6 +2,7 @@
 # -*- python -*-
 # (c) 2014 John Lenton
 # MIT licensed.
+# from https://github.com/chipaca/goctest
 
 import re
 import signal
