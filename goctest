@@ -22,25 +22,39 @@ class bcolors:
     WARNING = b'\033[38;5;226m'
     ENDC = b'\033[0m'
 
-signal.signal(signal.SIGINT, lambda *_: None)
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-if sys.stdout.isatty():
-    with subprocess.Popen(["go", "test"] + sys.argv[1:],
-                          bufsize=0,
-                          stderr=subprocess.STDOUT,
-                          stdout=subprocess.PIPE) as proc:
-        for line in proc.stdout:
-            if panic_rx.search(line) is not None:
-                line = panic_rx.sub(bcolors.PANIC + rb'\1' + bcolors.ENDC, line)
-            elif fail_rx.search(line) is not None:
-                line = fail_rx.sub(bcolors.FAIL + rb'\1' + bcolors.ENDC, line)
-            elif ok_rx.search(line) is not None:
-                line = ok_rx.sub(bcolors.OK + rb'\1' + bcolors.ENDC, line)
-            elif log_rx.search(line) is not None:
-                line = bcolors.OTHER + line + bcolors.ENDC
+def colorprint(line):
+    if panic_rx.search(line) is not None:
+        line = panic_rx.sub(bcolors.PANIC + rb'\1' + bcolors.ENDC, line)
+    elif fail_rx.search(line) is not None:
+        line = fail_rx.sub(bcolors.FAIL + rb'\1' + bcolors.ENDC, line)
+    elif ok_rx.search(line) is not None:
+        line = ok_rx.sub(bcolors.OK + rb'\1' + bcolors.ENDC, line)
+    elif log_rx.search(line) is not None:
+        line = bcolors.OTHER + line + bcolors.ENDC
 
-            sys.stdout.write(line.decode("utf-8"))
-            sys.stdout.flush()
-        sys.exit(proc.wait())
+    sys.stdout.write(line.decode("utf-8"))
+    sys.stdout.flush()
+
+if sys.stdin.isatty():
+    rv = subprocess.call(["go", "test", "-i"] + sys.argv[1:])
+    if rv != 0:
+        sys.exit(rv)
+
+    if sys.stdout.isatty():
+        # "go test" mode
+        with subprocess.Popen(["go", "test"] + sys.argv[1:],
+                              bufsize=0,
+                              stderr=subprocess.STDOUT,
+                              stdout=subprocess.PIPE) as proc:
+            for line in proc.stdout:
+                colorprint(line)
+            sys.exit(proc.wait())
+    else:
+        sys.exit(subprocess.call(["go", "test"] + sys.argv[1:]))
 else:
-    sys.exit(subprocess.call(["go", "test"] + sys.argv[1:]))
+    # pipe mode
+    for line in sys.stdin.buffer:
+        colorprint(line)
