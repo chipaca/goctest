@@ -8,12 +8,16 @@ import re
 import signal
 import subprocess
 import sys
-import argparse
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--show-logs", action="store_true")
-parser.add_argument("--debug", action="store_true")
-args = parser.parse_args()
+SHOW_LOGS = False
+DEBUG = False
+
+if "--show-logs" in sys.argv:
+    sys.argv.remove("--show-logs")
+    SHOW_LOGS = True
+if "--debug" in sys.argv:
+    sys.argv.remove("--debug")
+    DEBUG = True
 
 cached_rx = re.compile(rb'^((?:\s*--- )?PASS:?|ok\s+)(.*)(\(cached\))')
 ok_rx = re.compile(rb'^((?:\s*--- )?PASS:?|ok\s+)')
@@ -41,7 +45,7 @@ class rr:
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-if args.debug:
+if DEBUG:
     def debug(msg):
         print("<<<", msg.center(8), ">>>", end="")
 else:
@@ -62,7 +66,7 @@ def colorprint(line):
         debug("ok")
         line = ok_rx.sub(rr.OK, line)
     elif log_rx.search(line) is not None:
-        if args.show_logs:
+        if SHOW_LOGS:
             debug("log")
             line = bcolors.LOG + line + bcolors.ENDC
         else:
