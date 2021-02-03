@@ -19,6 +19,15 @@ Jenkins somewhere, and you can't figure out what failed or
 why. Download the output and pipe it through `goctest` and suddenly
 finding the failures is a lot easier.
 
+## Anything else?
+
+The aim of this is to make test output readable.
+As such, by default it will not copy lines that look like logs.
+If you need to see these lines, you can pass `--show-logs`.
+
+Also you can pass `--debug` if you need to see what is matching where,
+but you should be able to tell that from the output.
+
 ## Why is this Python?
 
 Well... if I wrote it in Go, I'd be tempted to make it an actual test
