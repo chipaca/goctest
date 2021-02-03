@@ -8,32 +8,70 @@ import re
 import signal
 import subprocess
 import sys
+import argparse
 
-ok_rx = re.compile(rb'^(PASS:?|ok\s+)')
-fail_rx = re.compile(rb'^(FAIL:?|OOPS:?)')
+parser = argparse.ArgumentParser()
+parser.add_argument("--show-logs", action="store_true")
+parser.add_argument("--debug", action="store_true")
+args = parser.parse_args()
+
+cached_rx = re.compile(rb'^((?:\s*--- )?PASS:?|ok\s+)(.*)(\(cached\))')
+ok_rx = re.compile(rb'^((?:\s*--- )?PASS:?|ok\s+)')
+fail_rx = re.compile(rb'^((?:\s*--- )?FAIL:?|OOPS:?)')
 panic_rx = re.compile(rb'^(PANIC:?|panic:?|\.\.\. Panic:?)')
-log_rx = re.compile(rb'^\[LOG\]|^\?\s+')
+notest_rx = re.compile(rb'^\s*\?\s+')
+log_rx = re.compile(rb'^\s*(?:\S+:\d+: )?\[(?:LOG|ERROR|WARNING|INFO|DEBUG|TRACE)\]')
 
 class bcolors:
+    CACHED = b'\033[38;5;22m'
     OK = b'\033[38;5;34m'
     FAIL = b'\033[38;5;196m'
     PANIC = b'\033[38;5;226m\033[48;5;88m'
-    OTHER = b'\033[38;5;241m'
+    NOTEST = b'\033[38;5;241m'
+    LOG = b'\033[38;5;243m'
     WARNING = b'\033[38;5;226m'
     ENDC = b'\033[0m'
+
+class rr:
+    CACHED = bcolors.CACHED + rb'\1' + bcolors.NOTEST + rb'\2' + bcolors.CACHED + rb'\3' + bcolors.ENDC
+    PANIC = bcolors.PANIC + rb'\1' + bcolors.ENDC
+    FAIL = bcolors.FAIL + rb'\1' + bcolors.ENDC
+    OK = bcolors.OK + rb'\1' + bcolors.ENDC
 
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 signal.signal(signal.SIGINT, signal.SIG_DFL)
 
+if args.debug:
+    def debug(msg):
+        print("<<<", msg.center(8), ">>>", end="")
+else:
+    def debug(msg):
+        pass
+
 def colorprint(line):
-    if panic_rx.search(line) is not None:
-        line = panic_rx.sub(bcolors.PANIC + rb'\1' + bcolors.ENDC, line)
+    if cached_rx.search(line) is not None:
+        debug("cached")
+        line = cached_rx.sub(rr.CACHED, line)
+    elif panic_rx.search(line) is not None:
+        debug("panic")
+        line = panic_rx.sub(rr.PANIC, line)
     elif fail_rx.search(line) is not None:
-        line = fail_rx.sub(bcolors.FAIL + rb'\1' + bcolors.ENDC, line)
+        debug("fail")
+        line = fail_rx.sub(rr.FAIL, line)
     elif ok_rx.search(line) is not None:
-        line = ok_rx.sub(bcolors.OK + rb'\1' + bcolors.ENDC, line)
+        debug("ok")
+        line = ok_rx.sub(rr.OK, line)
     elif log_rx.search(line) is not None:
-        line = bcolors.OTHER + line + bcolors.ENDC
+        if args.show_logs:
+            debug("log")
+            line = bcolors.LOG + line + bcolors.ENDC
+        else:
+            line = b""
+    elif notest_rx.search(line) is not None:
+        debug("no test")
+        line = bcolors.NOTEST + line + bcolors.ENDC
+    else:
+        debug("no match")
 
     sys.stdout.write(line.decode("utf-8"))
     sys.stdout.flush()
