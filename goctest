@@ -11,13 +11,48 @@ import sys
 
 SHOW_LOGS = False
 DEBUG = False
+ONLY_FAILS = False
 
-if "--show-logs" in sys.argv:
+# deal with args. Hope the ones we use are special enough :-)
+argv = sys.argv
+# make sure we don't look at things beyond "--", just in case
+if "--" in argv:
+    argv = argv[:argv.index("--")]
+
+# print usage and exit
+if "-h" in argv or "--help" in argv:
+    if "-h" in argv:
+        opt="-h"
+    else:
+        opt = "--help" 
+    print("""\
+usage: {0}goctest{1} [goctest flags] [go test arguments]...
+Run '{2}goctest {3}+{1}' to see the go test usage message, or
+run '{2}go help test{1}' and '{2}go help testflag{1}' for details.
+
+'goctest' flags are:
+ --show-logs   don't skip printing things that are clearly logs
+ --only-fails  only print failures and panics.
+ --debug       print messages to help in debugging goctest itself
+""".format("\033[38;5;226m", "\033[0m", "\033[1m", opt), file=sys.stderr)
+    sys.exit(2) # do as 'go' does even if i hate it
+
+# pass on usage
+if "-h+" in argv:
+    sys.argv[sys.argv.index("-h+")] = "-h"
+if "--help+" in argv:
+    sys.argv[sys.argv.index("--help+")] = "--help"
+
+# actual flags
+if "--show-logs" in argv:
     sys.argv.remove("--show-logs")
     SHOW_LOGS = True
-if "--debug" in sys.argv:
+if "--debug" in argv:
     sys.argv.remove("--debug")
     DEBUG = True
+if "--only-fails" in argv:
+    sys.argv.remove("--only-fails")
+    ONLY_FAILS = True
 
 cached_rx = re.compile(rb'^((?:\s*--- )?PASS:?|ok\s+)(.*)(\(cached\))')
 ok_rx = re.compile(rb'^((?:\s*--- )?PASS:?|ok\s+)')
@@ -52,33 +87,63 @@ else:
     def debug(msg):
         pass
 
-def colorprint(line):
-    if cached_rx.search(line) is not None:
-        debug("cached")
-        line = cached_rx.sub(rr.CACHED, line)
-    elif panic_rx.search(line) is not None:
-        debug("panic")
-        line = panic_rx.sub(rr.PANIC, line)
-    elif fail_rx.search(line) is not None:
-        debug("fail")
-        line = fail_rx.sub(rr.FAIL, line)
-    elif ok_rx.search(line) is not None:
-        debug("ok")
-        line = ok_rx.sub(rr.OK, line)
-    elif log_rx.search(line) is not None:
-        if SHOW_LOGS:
-            debug("log")
-            line = bcolors.LOG + line + bcolors.ENDC
+if ONLY_FAILS:
+    N=0
+    LAST=0
+    LINES=[]
+    def colorprint(line):
+        global N, LAST, LINES
+        N+=1
+        if panic_rx.search(line) is not None:
+            debug("panic")
+            line = panic_rx.sub(rr.PANIC, line)
+        elif fail_rx.search(line) is not None:
+            debug("fail")
+            line = fail_rx.sub(rr.FAIL, line)
         else:
-            line = b""
-    elif notest_rx.search(line) is not None:
-        debug("no test")
-        line = bcolors.NOTEST + line + bcolors.ENDC
-    else:
-        debug("no match")
+            if len(LINES) < 3:
+                LINES.append(line)
+            else:
+                LINES = [LINES[1], LINES[2], line]
+            debug("no match")
+            return
+        skipped = N - LAST - 1 - len(LINES)
+        if skipped > 0:
+            sys.stdout.write("\033[2m … skipped {} lines …\033[0m\n".format(skipped))
+        LAST = N
+        for l in LINES:
+            sys.stdout.write(l.decode('utf-8'))
+        LINES=[]
+        sys.stdout.write(line.decode("utf-8"))
+        sys.stdout.flush()
+else:
+    def colorprint(line):
+        if cached_rx.search(line) is not None:
+            debug("cached")
+            line = cached_rx.sub(rr.CACHED, line)
+        elif panic_rx.search(line) is not None:
+            debug("panic")
+            line = panic_rx.sub(rr.PANIC, line)
+        elif fail_rx.search(line) is not None:
+            debug("fail")
+            line = fail_rx.sub(rr.FAIL, line)
+        elif ok_rx.search(line) is not None:
+            debug("ok")
+            line = ok_rx.sub(rr.OK, line)
+        elif log_rx.search(line) is not None:
+            if SHOW_LOGS:
+                debug("log")
+                line = bcolors.LOG + line + bcolors.ENDC
+            else:
+                line = b""
+        elif notest_rx.search(line) is not None:
+            debug("no test")
+            line = bcolors.NOTEST + line + bcolors.ENDC
+        else:
+            debug("no match")
 
-    sys.stdout.write(line.decode("utf-8"))
-    sys.stdout.flush()
+        sys.stdout.write(line.decode("utf-8"))
+        sys.stdout.flush()
 
 if sys.stdin.isatty():
     rv = subprocess.call(["go", "test", "-i"] + sys.argv[1:])
