@@ -38,29 +38,45 @@ A couple of things.
 
 Here's the output of `goctest -h`:
 
-    goctest [-q|-v|-h] [-trim prefix] [-|go help arguments]
+    goctest [-q|-v] [-c (a.test|-)] [-trim prefix] [-|go help arguments]
 
-    The -q and -v flags control the amount of progress reporting:
+    The ‘-q’ and ‘-v’ flags control the amount of progress reporting:
      -q  quieter: one character per non-failing package, one line per test fail.
-     -v  verbose: one line per test.
+     -v  verbose: one line per test (or skipped package).
     Without -q nor -v, progress is reported at one line per package.
 
-    The -trim flag allows you to specify a prefix to remove from package names.
-    If not given, we adjust it on the fly to be the longest common prefix of
-    package names reported by the test runner. This means the very first test
-    will probably get it wrong.
+    The ‘-trim’ flag allows you to specify a prefix to remove from package names.
+    If not given it defaults to the output of ‘go list -m’. If that fails (e.g.
+    because you're not running in a module) it's adjusted on the fly to be the
+    longest common prefix of package names reported by the test runner. This
+    means the very first test will get it wrong. In a pinch you can ‘-trim ""’.
 
-    The '-' flag tells goctest to read the JSON output of a test result from stdin.
-    If the output you have is not JSON (i.e. it's from a plain 'go test' run,
-    without '-json'), read 'go help tool test2json'.
+    The ‘-’ flag tells goctest to read the JSON output of a test result from stdin.
+    For example, you could do
 
-    Lastly, the '--' flag tells goctest to stop looking at its arguments and get
+        go test -json ./... > tests.json
+        goctest - < tests.json
+
+    The ‘-c’ flag tells goctest to run the precompiled test binary. That is,
+    for example,
+
+        go test -c ./foo/
+        goctest -c foo.test
+
+    If the argument to ‘-c’ is ‘-’, then read plain (non-JSON) input from stdin:
+
+        go test -v ./... > tests.out
+        goctest -c - < tests.out
+
+    but note that unless the tests were run with ‘-v’, the output is going to be
+    slightly off from wht you'd expect (and even with it, it's not great).
+
+    Lastly, the ‘--’ flag tells goctest to stop looking at its arguments and get
     on with it.
 
-    go help arguments flags are as per usual (or you can 'goctest -- -h'):
+    go help arguments and flags are as per usual (or you can 'goctest -- -h'):
     [build/test flags] [packages] [build/test flags & test binary flags]
     Run 'go help test' and 'go help testflag' for details.
-    ~/src/goctest (main-go)$  printf "%q\n" "$(tput nop)"
 
 
 ## What happened to the Python version?
