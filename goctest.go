@@ -271,18 +271,25 @@ func disparage() {
 }
 
 func common(a, b string) string {
-	aa := strings.Split(a, "/")
-	bb := strings.Split(b, "/")
-	if len(aa) > len(bb) {
-		aa, bb = bb, aa
+	if a == b {
+		return a
+	}
+	last := -1
+	if len(a) > len(b) {
 		a, b = b, a
 	}
-	for i := range aa {
-		if aa[i] != bb[i] {
-			return strings.Join(aa[:i], "/")
+	for i := 0; i < len(a); i++ {
+		if a[i] != b[i] {
+			break
+		}
+		if a[i] == '/' {
+			last = i
 		}
 	}
-	return a
+	if last == -1 {
+		return ""
+	}
+	return a[:last]
 }
 
 func mkContext() context.Context {
