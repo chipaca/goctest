@@ -74,9 +74,9 @@ Here's the output of `goctest -h`:
     Lastly, the ‘--’ flag tells goctest to stop looking at its arguments and get
     on with it.
 
-    go help arguments and flags are as per usual (or you can 'goctest -- -h'):
+    go help arguments and flags are as per usual (or you can ‘goctest -- -h’):
     [build/test flags] [packages] [build/test flags & test binary flags]
-    Run 'go help test' and 'go help testflag' for details.
+    Run ‘go help test’ and ‘go help testflag’ for details.
 
 
 ## What happened to the Python version?

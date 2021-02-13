@@ -57,9 +57,9 @@ slightly off from wht you'd expect (and even with it, it's not great).
 Lastly, the ‘--’ flag tells goctest to stop looking at its arguments and get
 on with it.
 
-go help arguments and flags are as per usual (or you can 'goctest -- -h'):
+go help arguments and flags are as per usual (or you can ‘goctest -- -h’):
 [build/test flags] [packages] [build/test flags & test binary flags]
-Run 'go help test' and 'go help testflag' for details.
+Run ‘go help test’ and ‘go help testflag’ for details.
 `
 
 	// color escapes padded to be the same length, for tabwriter
@@ -275,15 +275,14 @@ func common(a, b string) string {
 	bb := strings.Split(b, "/")
 	if len(aa) > len(bb) {
 		aa, bb = bb, aa
+		a, b = b, a
 	}
-	var cc []string
-	for i, a := range aa {
-		if a != bb[i] {
-			break
+	for i := range aa {
+		if aa[i] != bb[i] {
+			return strings.Join(aa[:i], "/")
 		}
-		cc = append(cc, a)
 	}
-	return strings.Join(cc, "/")
+	return a
 }
 
 func mkContext() context.Context {
