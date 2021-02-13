@@ -1,5 +1,7 @@
 # goctest
 
+![a screencast of goctest running lxd's test suite, in quiet mode](quiet.gif)
+
 ## What does it do?
 
 Colorise “go test” output. Can be used to drive `go test` directly, e.g.

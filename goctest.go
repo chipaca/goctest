@@ -264,6 +264,7 @@ func disparage() {
 		"One should not fear failure. But oh, dear.",
 		"Once more unto the breach, dear friends, once more.",
 		"Aw, bless.",
+		"No, no, I'm laughing \033[3mwith\033[23m you.",
 	}
 
 	fmt.Print("\n", disses[rand.Intn(len(disses))], "\n\n")
