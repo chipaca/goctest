@@ -4,8 +4,8 @@
 
 ## What does it do?
 
-Colorise “go test” output. Can be used to drive `go test` directly, e.g.
-if you normally do
+Colourise and becalm the “go test” output. Can be used to drive `go test`
+directly, e.g.  if you normally do
 
     go test -v ./...
 
@@ -13,22 +13,23 @@ instead do
 
     goctest -v ./...
 
-for a slightly colorized output.
+for a slightly colourised, and significantly less noisy output (with options
+to make it even less so).
 
-If what you have is a test *binary*, i.e. something built with `go test
--c`, never fear! Try
+If what you have is a test *binary*, i.e. something built with `go test -c`,
+never fear! Try
 
     goctest -c ./the.test
 
 You can also pipe the output of `go test -json` through `goctest`. This is
-particularly useful when `go test` runs on a Jenkins somewhere, and you
-can't figure out what failed or why. Download the output and pipe it
-through `goctest` and suddenly finding the failures is a lot easier.
+particularly useful when `go test` runs on a Jenkins somewhere, and you can't
+figure out what failed or why. Download the output and pipe it through
+`goctest` and suddenly finding the failures is a lot easier.
 
     goctest - < /tmp/output.json
 
-If the output you have is from a `go test` run *without* the `-json` flag,
-you can try
+If the output you have is from a `go test` run *without* the `-json` flag, you
+can try
 
     goctest -c - < /tmp/output.out
 
