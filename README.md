@@ -81,5 +81,7 @@ Here's the output of `goctest -h`:
 
 ## What happened to the Python version?
 
-It's still in git, in its own branch. It might still be useful for you.
+It's still in git, in its own [branch]. It might still be useful for you.
 I like this one better.
+
+[branch]: https://github.com/chipaca/goctest/tree/python

@@ -1,5 +1,9 @@
 package main // import "chipaca.com/goctest"
 
+// © 2021 John Lenton
+// MIT licensed.
+// from https://github.com/chipaca/goctest
+
 import (
 	"context"
 	"encoding/json"
@@ -63,9 +67,10 @@ Run ‘go help test’ and ‘go help testflag’ for details.
 `
 
 	// color escapes padded to be the same length, for tabwriter
-	fail = "\033[38;5;196m"
-	pass = "\033[38;5;028m"
-	skip = "\033[38;5;244m"
+	fail = "\033[38;5;124m" // #af0000 (Red3)
+	pass = "\033[38;5;034m" // #00af00 (Green3)
+	skip = "\033[38;5;244m" // #808080 (Grey50)
+	zero = "\033[38;5;172m" // #d78700 (Orange3)
 	nope = "\033[00000000m" // filler
 	endc = "\033[0m"
 )
@@ -145,6 +150,66 @@ func (ss *summary) add(ev *TestEvent) {
 	}
 }
 
+func (ss *summary) isZero() bool {
+	return ss.tests.total-ss.tests.skipped <= 0
+}
+
+// big builds a big message, the takeaway from this test run for the user.
+// It takes a font and returns as many lines of words as the font
+// entries have. That is, a [14][N]string font produces a [N]string
+func (ss *summary) big(fnt *font) []string {
+	var lines []string
+	p := 0
+	if !ss.isZero() {
+		p = (100 * ss.tests.passed) / (ss.tests.total - ss.tests.skipped)
+	}
+	for i := range fnt.numerals[0] {
+		var line []string
+		if ss.isZero() {
+			line = []string{zero + fnt.numerals[0][i], fnt.tests[i], fnt.run[i] + endc}
+		} else {
+			line = []string{colourForRatio(ss.tests.passed, ss.tests.total-ss.tests.skipped)}
+			if p == 100 {
+				line[0] += fnt.numerals[1][i] + fnt.numerals[0][i] + fnt.numerals[0][i] + fnt.percent[i]
+			} else {
+				d := p % 10
+				p := p / 10
+				if p > 0 {
+					line[0] += fnt.numerals[p][i]
+				}
+				line[0] += fnt.numerals[d][i] + fnt.percent[i]
+			}
+			line = append(line, fnt.tests[i], fnt.passed[i]+endc)
+		}
+		lines = append(lines, strings.Join(line, fnt.space))
+	}
+	return lines
+}
+
+// returns a colour suitable for highlighting a ratio of passed to
+// total tests.
+// only bit tht uses 24-bit colour support
+// (should just not work if not supported)
+func colourForRatio(p, q int) string {
+	r := (9 * p) / q
+	if r == 9 {
+		r = 8
+	}
+	if r < 0 {
+		r = 0
+	}
+	// this tiny table is a 9-step HCL blend done using github.com/lucasb-eyer/go-colorful:
+	//     blocks := 9
+	//     c1, _ := colorful.Hex("#af0000")
+	//     c2, _ := colorful.Hex("#00af00")
+	//     for i := 0 ; i < blocks ; i++ {
+	//     	    r, g, _ := c1.BlendHcl(c2, float64(i)/float64(blocks-1)).RGB255()
+	//     	    fmt.Printf(`"%d;%d", `, r, g)
+	//     }
+	c := []string{"175;0", "174;47", "169;72", "160;94", "147;113", "130;130", "109;146", "78;161", "0;175"}[r]
+	return fmt.Sprintf("\033[38;2;%s;0m", c)
+}
+
 // a progressReporter takes a TestEvent and tells your mum about it
 type progressReporter interface {
 	report(*TestEvent)
@@ -176,15 +241,20 @@ func (*defaultProgress) summarize(ss *summary) {
 	if ss.packages.skipped > 0 {
 		fmt.Printf(" (%d packages had %sNO tests%s)", ss.packages.skipped, skip, endc)
 	}
-	fmt.Printf(".\n%d tests %spassed%s", ss.tests.passed, pass, endc)
-	if ss.tests.failed > 0 {
-		fmt.Printf(", and %d tests %sfailed%s", ss.tests.failed, fail, endc)
+	if ss.tests.total > 0 {
+		fmt.Printf(".\n%d tests %spassed%s", ss.tests.passed, pass, endc)
+		if ss.tests.failed > 0 {
+			fmt.Printf(", and %d tests %sfailed%s", ss.tests.failed, fail, endc)
+		}
+		if ss.tests.skipped > 0 {
+			fmt.Printf(" (%d tests were %sskipped%s)", ss.tests.skipped, skip, endc)
+		}
 	}
-	if ss.tests.skipped > 0 {
-		fmt.Printf(" (%d tests were %sskipped%s)", ss.tests.skipped, skip, endc)
+	fmt.Println(".")
+
+	for _, line := range ss.big(&fonts.braille) {
+		fmt.Println(line)
 	}
-	// TODO: percentage -> green/red slider
-	fmt.Printf(". That's %d%%.\n", ss.tests.passed*100/ss.tests.total)
 }
 
 type verboseProgress struct{}
@@ -209,12 +279,19 @@ func (*verboseProgress) report(ev *TestEvent) {
 }
 
 func (*verboseProgress) summarize(ss *summary) {
+	if ss.isZero() {
+		for _, line := range ss.big(&fonts.future) {
+			fmt.Println(line)
+		}
+		return
+	}
+	big := ss.big(&fonts.future) // here we (ab)use that future is 3 rows tall
 	var w = tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', tabwriter.AlignRight)
 	fmt.Fprintln(w, nope+endc+"\tTests\tPackages\t")
 	fmt.Fprintf(w, "%sTotal%s\t%d \t%d \t\n", nope, endc, ss.tests.total, ss.packages.total)
-	fmt.Fprintf(w, "%sPassed%s\t%d \t%d \t\n", pass, endc, ss.tests.passed, ss.packages.passed)
-	fmt.Fprintf(w, "%sSkipped%s\t%d \t%d \t\n", skip, endc, ss.tests.skipped, ss.packages.skipped)
-	fmt.Fprintf(w, "%sFailed%s\t%d \t%d \t\n", fail, endc, ss.tests.failed, ss.packages.failed)
+	fmt.Fprintf(w, "%sPassed%s\t%d \t%d \t  %s\n", pass, endc, ss.tests.passed, ss.packages.passed, big[0])
+	fmt.Fprintf(w, "%sSkipped%s\t%d \t%d \t  %s\n", skip, endc, ss.tests.skipped, ss.packages.skipped, big[1])
+	fmt.Fprintf(w, "%sFailed%s\t%d \t%d \t  %s\n", fail, endc, ss.tests.failed, ss.packages.failed, big[2])
 	w.Flush()
 }
 
@@ -223,25 +300,19 @@ type quietProgress struct {
 }
 
 func (r *quietProgress) report(ev *TestEvent) {
+	if ev.Test != "" {
+		return
+	}
 	switch ev.Action {
 	case "pass":
-		if ev.Test == "" {
-			fmt.Print(pass, "▪", endc)
-			r.needsNL = true
-		}
+		fmt.Print(pass, "▪", endc)
+		r.needsNL = true
 	case "skip":
-		if ev.Test == "" {
-			fmt.Print(skip, "▪", endc)
-			r.needsNL = true
-		}
+		fmt.Print(skip, "▪", endc)
+		r.needsNL = true
 	case "fail":
-		if ev.Test != "" {
-			if r.needsNL {
-				fmt.Println()
-			}
-			fmt.Printf("%s%s%s\n", fail, ev.name(), endc)
-			r.needsNL = false
-		}
+		fmt.Print(fail, "×", endc)
+		r.needsNL = true
 	}
 }
 
@@ -249,7 +320,20 @@ func (r *quietProgress) summarize(ss *summary) {
 	if r.needsNL {
 		fmt.Println()
 	}
-	fmt.Printf("%d %sfailed%s, %d %spassed%s.\n", ss.tests.failed, fail, endc, ss.tests.passed, pass, endc)
+	var s []string
+	if ss.tests.skipped > 0 {
+		s = append(s, fmt.Sprintf("%d %sskipped%s", ss.tests.skipped, skip, endc))
+	}
+	if ss.tests.failed > 0 {
+		s = append(s, fmt.Sprintf("%d %sfailed%s", ss.tests.failed, fail, endc))
+	}
+	if ss.tests.passed > 0 {
+		s = append(s, fmt.Sprintf("%d %spassed%s", ss.tests.passed, pass, endc))
+	}
+	if len(s) > 0 {
+		fmt.Print(strings.Join(s, ", "), ". ")
+	}
+	fmt.Println(" ", ss.big(&fonts.double)[0])
 }
 
 // disparage is long for 'diss'.
@@ -428,6 +512,7 @@ loop:
 			}
 		}
 	}
+	fmt.Println()
 	progress.summarize(&sums)
 	if len(fails) > 0 {
 		disparage()

@@ -1,5 +1,9 @@
 package main
 
+// © 2021 John Lenton
+// MIT licensed.
+// from https://github.com/chipaca/goctest
+
 import (
 	"testing"
 )
