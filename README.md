@@ -1,8 +1,10 @@
 # goctest
 
+See what it looks like with no further arguments:
+
 ![a screencast of goctest 0.2.1 running a test suite, in default mode](img/default.gif)
 
-<details><summary>verbose</summary>
+<details><summary>or see the same run with <code>-v</code> (verbose)</summary>
 <p>
 
 ![a screencast of goctest 0.2.1 running a test suite, in verbose mode](img/verbose.gif)
@@ -10,7 +12,7 @@
 </p>
 </details>
 
-<details><summary>quiet</summary>
+<details><summary>...or <code>-q</code> (quiet)</summary>
 <p>
 
 ![a screencast of goctest 0.2.1 running a test suite, in quiet mode](img/quiet.gif)
