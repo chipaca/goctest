@@ -28,7 +28,7 @@ const (
 goctest [-q|-v] [-c (a.test|-)] [-trim prefix] [-|go help arguments]
 
 The ‘-q’ and ‘-v’ flags control the amount of progress reporting:
- -q  quieter: one character per non-failing package, one line per test fail.
+ -q  quieter: one character per package.
  -v  verbose: one line per test (or skipped package).
 Without -q nor -v, progress is reported at one line per package.
 
@@ -156,13 +156,21 @@ func (ss *summary) isZero() bool {
 
 // big builds a big message, the takeaway from this test run for the user.
 // It takes a font and returns as many lines of words as the font
-// entries have. That is, a [14][N]string font produces a [N]string
+// entries have. That is, a font with characters that are [N]string
+// font produces a [N]string
 func (ss *summary) big(fnt *font) []string {
 	var lines []string
 	p := 0
 	if !ss.isZero() {
 		p = (100 * ss.tests.passed) / (ss.tests.total - ss.tests.skipped)
+		if p > 100 {
+			p = 100
+		} else if p < 0 {
+			p = 0
+		}
 	}
+	d := p % 10
+	r := p / 10
 	for i := range fnt.numerals[0] {
 		var line []string
 		if ss.isZero() {
@@ -172,10 +180,8 @@ func (ss *summary) big(fnt *font) []string {
 			if p == 100 {
 				line[0] += fnt.numerals[1][i] + fnt.numerals[0][i] + fnt.numerals[0][i] + fnt.percent[i]
 			} else {
-				d := p % 10
-				p := p / 10
-				if p > 0 {
-					line[0] += fnt.numerals[p][i]
+				if r > 0 {
+					line[0] += fnt.numerals[r][i]
 				}
 				line[0] += fnt.numerals[d][i] + fnt.percent[i]
 			}
@@ -219,20 +225,17 @@ type progressReporter interface {
 type defaultProgress struct{}
 
 func (*defaultProgress) report(ev *TestEvent) {
+	if ev.Test != "" {
+		return
+	}
 	switch ev.Action {
 	case "pass":
-		if ev.Test == "" {
-			fmt.Println(pass+"✓"+endc, ev.pkg())
-		}
+		fmt.Println(pass+"✓"+endc, ev.pkg())
 	case "skip":
-		if ev.Test == "" {
-			fmt.Printf("%s- %s%s\n", skip, ev.pkg(), endc)
-			fmt.Println(skip+"-", ev.pkg(), endc)
-		}
+		fmt.Printf("%s- %s%s\n", skip, ev.pkg(), endc)
+		fmt.Println(skip+"-", ev.pkg(), endc)
 	case "fail":
-		if ev.Test == "" {
-			fmt.Println(fail+"×"+endc, ev.pkg())
-		}
+		fmt.Println(fail+"×"+endc, ev.pkg())
 	}
 }
 

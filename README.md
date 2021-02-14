@@ -1,10 +1,27 @@
 # goctest
 
-![a screencast of goctest running lxd's test suite, in quiet mode](quiet.gif)
+![a screencast of goctest 0.2.1 running a test suite, in default mode](img/default.gif)
+
+<details><summary>verbose</summary>
+<p>
+
+![a screencast of goctest 0.2.1 running a test suite, in verbose mode](img/verbose.gif)
+
+</p>
+</details>
+
+<details><summary>quiet</summary>
+<p>
+
+![a screencast of goctest 0.2.1 running a test suite, in quiet mode](img/quiet.gif)
+
+</p>
+</details>
+
 
 ## What does it do?
 
-Colourise and becalm the “go test” output. Can be used to drive `go test`
+Colourise and becalm the `go test` output. Can be used to drive `go test`
 directly, e.g.  if you normally do
 
     go test -v ./...
@@ -42,7 +59,7 @@ Here's the output of `goctest -h`:
     goctest [-q|-v] [-c (a.test|-)] [-trim prefix] [-|go help arguments]
 
     The ‘-q’ and ‘-v’ flags control the amount of progress reporting:
-     -q  quieter: one character per non-failing package, one line per test fail.
+     -q  quieter: one character per package.
      -v  verbose: one line per test (or skipped package).
     Without -q nor -v, progress is reported at one line per package.
 
