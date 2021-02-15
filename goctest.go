@@ -302,6 +302,10 @@ type quietProgress struct {
 	needsNL bool
 }
 
+func (r *quietProgress) uri(ev *TestEvent, text string) string {
+	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", ev.pkg(), text)
+}
+
 func (r *quietProgress) report(ev *TestEvent) {
 	if ev.Test != "" {
 		return
@@ -314,7 +318,7 @@ func (r *quietProgress) report(ev *TestEvent) {
 		fmt.Print(skip, "▪", endc)
 		r.needsNL = true
 	case "fail":
-		fmt.Print(fail, "×", endc)
+		fmt.Printf("%s%s%s", fail, r.uri(ev, "×"), endc)
 		r.needsNL = true
 	}
 }
