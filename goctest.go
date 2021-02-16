@@ -5,6 +5,7 @@ package main // import "chipaca.com/goctest"
 // from https://github.com/chipaca/goctest
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -23,6 +25,8 @@ const (
 	// something you'd struggle to set it to, but won't freak you
 	// out if it leaks
 	unsetPrefix = " -(unset)- "
+	// an unikely name for a test
+	errorPlaceholder = " -(error)- "
 
 	usage = `
 goctest [-q|-v] [-c (a.test|-)] [-trim prefix] [-|go help arguments]
@@ -65,14 +69,6 @@ go help arguments and flags are as per usual (or you can ‘goctest -- -h’):
 [build/test flags] [packages] [build/test flags & test binary flags]
 Run ‘go help test’ and ‘go help testflag’ for details.
 `
-
-	// color escapes padded to be the same length, for tabwriter
-	fail = "\033[38;5;124m" // #af0000 (Red3)
-	pass = "\033[38;5;034m" // #00af00 (Green3)
-	skip = "\033[38;5;244m" // #808080 (Grey50)
-	zero = "\033[38;5;172m" // #d78700 (Orange3)
-	nope = "\033[00000000m" // filler
-	endc = "\033[0m"
 )
 
 type TestEvent struct {
@@ -106,15 +102,25 @@ func (ev *TestEvent) name() string {
 	return pkg + ":" + ev.Test
 }
 
+func (ev *TestEvent) isTest() bool {
+	return ev.Test != "" && ev.Test != errorPlaceholder
+}
+
 type sums struct {
 	total   int
 	failed  int
+	errored int
 	skipped int
 	passed  int
 }
 
 func (s *sums) addFail() {
 	s.failed++
+	s.total++
+}
+
+func (s *sums) addError() {
+	s.errored++
 	s.total++
 }
 
@@ -128,6 +134,10 @@ func (s *sums) addPass() {
 	s.passed++
 }
 
+func (s *sums) isZero() bool {
+	return s.total-s.skipped <= 0
+}
+
 type summary struct {
 	tests    sums
 	packages sums
@@ -135,7 +145,7 @@ type summary struct {
 
 func (ss *summary) add(ev *TestEvent) {
 	var s *sums
-	if ev.Test == "" {
+	if ev.Test == "" || ev.Test == errorPlaceholder {
 		s = &ss.packages
 	} else {
 		s = &ss.tests
@@ -147,21 +157,23 @@ func (ss *summary) add(ev *TestEvent) {
 		s.addSkip()
 	case "fail":
 		s.addFail()
+	case "error":
+		s.addError()
 	}
 }
 
 func (ss *summary) isZero() bool {
-	return ss.tests.total-ss.tests.skipped <= 0
+	return ss.tests.isZero() && ss.packages.isZero()
 }
 
 // big builds a big message, the takeaway from this test run for the user.
 // It takes a font and returns as many lines of words as the font
 // entries have. That is, a font with characters that are [N]string
 // font produces a [N]string
-func (ss *summary) big(fnt *font) []string {
+func (ss *summary) big(esc *escape, fnt *font) []string {
 	var lines []string
 	p := 0
-	if !ss.isZero() {
+	if !ss.tests.isZero() {
 		p = (100 * ss.tests.passed) / (ss.tests.total - ss.tests.skipped)
 		if p > 100 {
 			p = 100
@@ -173,10 +185,10 @@ func (ss *summary) big(fnt *font) []string {
 	r := p / 10
 	for i := range fnt.numerals[0] {
 		var line []string
-		if ss.isZero() {
-			line = []string{zero + fnt.numerals[0][i], fnt.tests[i], fnt.run[i] + endc}
+		if ss.tests.isZero() {
+			line = []string{esc.zero + fnt.numerals[0][i], fnt.tests[i], fnt.run[i] + esc.endc}
 		} else {
-			line = []string{colourForRatio(ss.tests.passed, ss.tests.total-ss.tests.skipped)}
+			line = []string{esc.rgb(colourForRatio(ss.tests.passed, ss.tests.total-ss.tests.skipped))}
 			if p == 100 {
 				line[0] += fnt.numerals[1][i] + fnt.numerals[0][i] + fnt.numerals[0][i] + fnt.percent[i]
 			} else {
@@ -185,7 +197,7 @@ func (ss *summary) big(fnt *font) []string {
 				}
 				line[0] += fnt.numerals[d][i] + fnt.percent[i]
 			}
-			line = append(line, fnt.tests[i], fnt.passed[i]+endc)
+			line = append(line, fnt.tests[i], fnt.passed[i]+esc.endc)
 		}
 		lines = append(lines, strings.Join(line, fnt.space))
 	}
@@ -196,7 +208,7 @@ func (ss *summary) big(fnt *font) []string {
 // total tests.
 // only bit tht uses 24-bit colour support
 // (should just not work if not supported)
-func colourForRatio(p, q int) string {
+func colourForRatio(p, q int) [3]uint8 {
 	r := (9 * p) / q
 	if r == 9 {
 		r = 8
@@ -205,146 +217,182 @@ func colourForRatio(p, q int) string {
 		r = 0
 	}
 	// this tiny table is a 9-step HCL blend done using github.com/lucasb-eyer/go-colorful:
-	//     blocks := 9
+	//     const blocks = 9
 	//     c1, _ := colorful.Hex("#af0000")
 	//     c2, _ := colorful.Hex("#00af00")
-	//     for i := 0 ; i < blocks ; i++ {
-	//     	    r, g, _ := c1.BlendHcl(c2, float64(i)/float64(blocks-1)).RGB255()
-	//     	    fmt.Printf(`"%d;%d", `, r, g)
+	//     for i := float64(0) ; i < blocks ; i++ {
+	//     	    r, g, b := c1.BlendHcl(c2, i/(blocks-1)).RGB255()
+	//     	    fmt.Printf("{%d, %d, %d},", r, g, b)
 	//     }
-	c := []string{"175;0", "174;47", "169;72", "160;94", "147;113", "130;130", "109;146", "78;161", "0;175"}[r]
-	return fmt.Sprintf("\033[38;2;%s;0m", c)
+	return [][3]uint8{
+		{175, 0, 0},
+		{174, 47, 0},
+		{169, 72, 0},
+		{160, 94, 0},
+		{147, 113, 0},
+		{130, 130, 0},
+		{109, 146, 0},
+		{78, 161, 0},
+		{0, 175, 0},
+	}[r]
 }
 
 // a progressReporter takes a TestEvent and tells your mum about it
 type progressReporter interface {
 	report(*TestEvent)
 	summarize(*summary)
+	setEscape(string) *escape
 }
 
-type defaultProgress struct{}
+type defaultProgress struct{ escape }
 
-func (*defaultProgress) report(ev *TestEvent) {
-	if ev.Test != "" {
+func (p *defaultProgress) report(ev *TestEvent) {
+	if ev.isTest() {
 		return
 	}
 	switch ev.Action {
 	case "pass":
-		fmt.Println(pass+"✓"+endc, ev.pkg())
+		fmt.Println(p.pass+"✓"+p.endc, ev.pkg())
 	case "skip":
-		fmt.Printf("%s- %s%s\n", skip, ev.pkg(), endc)
-		fmt.Println(skip+"-", ev.pkg(), endc)
+		fmt.Printf("%s- %s%s\n", p.skip, ev.pkg(), p.endc)
 	case "fail":
-		fmt.Println(fail+"×"+endc, ev.pkg())
+		fmt.Println(p.fail+"×"+p.endc, ev.pkg())
+	case "error":
+		fmt.Printf("%sℯ %s%s\n", p.fail, ev.pkg(), p.endc)
 	}
 }
 
-func (*defaultProgress) summarize(ss *summary) {
-	fmt.Printf("Found %d tests in %d packages", ss.tests.total, ss.packages.total)
+func gn(s, p string) func(int) string {
+	return func(n int) string {
+		x := p
+		if n == 1 {
+			x = s
+		}
+		return fmt.Sprintf("%d %s", n, x)
+	}
+}
+
+func (p *defaultProgress) summarize(ss *summary) {
+	pkg := gn("package", "packages")
+	tst := gn("test", "tests")
+	fmt.Printf("Found %s in %s", tst(ss.tests.total), pkg(ss.packages.total))
 	if ss.packages.skipped > 0 {
-		fmt.Printf(" (%d packages had %sNO tests%s)", ss.packages.skipped, skip, endc)
+		fmt.Printf(" (%s had %sNO tests%s)", pkg(ss.packages.skipped), p.skip, p.endc)
+	}
+	if ss.packages.errored > 0 {
+		fmt.Printf(", and %d packages did not even build", ss.packages.errored)
 	}
 	if ss.tests.total > 0 {
-		fmt.Printf(".\n%d tests %spassed%s", ss.tests.passed, pass, endc)
+		fmt.Printf(".\n%d tests %spassed%s", ss.tests.passed, p.pass, p.endc)
 		if ss.tests.failed > 0 {
-			fmt.Printf(", and %d tests %sfailed%s", ss.tests.failed, fail, endc)
+			fmt.Printf(", and %d tests %sfailed%s", ss.tests.failed, p.fail, p.endc)
 		}
 		if ss.tests.skipped > 0 {
-			fmt.Printf(" (%d tests were %sskipped%s)", ss.tests.skipped, skip, endc)
+			fmt.Printf(" (%d tests were %sskipped%s)", ss.tests.skipped, p.skip, p.endc)
 		}
 	}
 	fmt.Println(".")
 
-	for _, line := range ss.big(&fonts.braille) {
+	for _, line := range ss.big(&p.escape, &fonts.braille) {
 		fmt.Println(line)
 	}
 }
 
-type verboseProgress struct{}
+type verboseProgress struct {
+	escape
+	seenFails map[string]bool
+}
 
-func (*verboseProgress) report(ev *TestEvent) {
+func (p *verboseProgress) report(ev *TestEvent) {
 	switch ev.Action {
 	case "pass":
 		if ev.Test != "" {
-			fmt.Println(pass+"✓"+endc, ev.name())
+			fmt.Println(p.pass+"✓"+p.endc, ev.name())
 		}
 	case "skip":
 		if ev.Test != "" {
-			fmt.Printf("%s- %s%s\n", skip, ev.name(), endc)
+			fmt.Printf("%s- %s%s\n", p.skip, ev.name(), p.endc)
 		} else {
-			fmt.Printf("%s- %s%s\n", skip, ev.pkg(), endc)
+			fmt.Printf("%s- %s%s\n", p.skip, ev.pkg(), p.endc)
 		}
 	case "fail":
 		if ev.Test != "" {
-			fmt.Println(fail+"×"+endc, ev.name())
+			if ev.Package != "" {
+				p.seenFails[ev.Package] = true
+			}
+			fmt.Println(p.fail+"×"+p.endc, ev.name())
+		} else if !p.seenFails[ev.Package] {
+			fmt.Println(p.fail+"×"+p.endc, ev.pkg())
 		}
+	case "error":
+		fmt.Println(p.fail+"ℯ"+p.endc, ev.pkg())
 	}
 }
 
-func (*verboseProgress) summarize(ss *summary) {
+func (p *verboseProgress) summarize(ss *summary) {
 	if ss.isZero() {
-		for _, line := range ss.big(&fonts.future) {
+		for _, line := range ss.big(&p.escape, &fonts.future) {
 			fmt.Println(line)
 		}
 		return
 	}
-	big := ss.big(&fonts.future) // here we (ab)use that future is 3 rows tall
+	big := ss.big(&p.escape, &fonts.future) // here we (ab)use that future is 3 rows tall
 	var w = tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', tabwriter.AlignRight)
-	fmt.Fprintln(w, nope+endc+"\tTests\tPackages\t")
-	fmt.Fprintf(w, "%sTotal%s\t%d \t%d \t\n", nope, endc, ss.tests.total, ss.packages.total)
-	fmt.Fprintf(w, "%sPassed%s\t%d \t%d \t  %s\n", pass, endc, ss.tests.passed, ss.packages.passed, big[0])
-	fmt.Fprintf(w, "%sSkipped%s\t%d \t%d \t  %s\n", skip, endc, ss.tests.skipped, ss.packages.skipped, big[1])
-	fmt.Fprintf(w, "%sFailed%s\t%d \t%d \t  %s\n", fail, endc, ss.tests.failed, ss.packages.failed, big[2])
+	fmt.Fprintln(w, p.nope+"\t\tTests\tPackages\t"+p.endc+"\t")
+	fmt.Fprintf(w, "%s\tTotal\t%d \t%d \t%s\t\n", p.nope, ss.tests.total, ss.packages.total, p.endc)
+	fmt.Fprintf(w, "%s\tPassed\t%d \t%d \t%s\t  %s\n", p.pass, ss.tests.passed, ss.packages.passed, p.endc, big[0])
+	fmt.Fprintf(w, "%s\tSkipped\t%d \t%d \t%s\t  %s\n", p.skip, ss.tests.skipped, ss.packages.skipped, p.endc, big[1])
+	fmt.Fprintf(w, "%s\tFailed\t%d \t%d \t%s\t  %s\n", p.fail, ss.tests.failed, ss.packages.failed, p.endc, big[2])
+	fmt.Fprintf(w, "%s\tError'ed\t - \t%d \t%s\t\n", p.fail, ss.packages.errored, p.endc)
 	w.Flush()
 }
 
 type quietProgress struct {
+	escape
 	needsNL bool
 }
 
-func (r *quietProgress) uri(ev *TestEvent, text string) string {
-	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", ev.pkg(), text)
-}
-
-func (r *quietProgress) report(ev *TestEvent) {
-	if ev.Test != "" {
+func (p *quietProgress) report(ev *TestEvent) {
+	if ev.isTest() {
 		return
 	}
 	switch ev.Action {
 	case "pass":
-		fmt.Print(pass, "▪", endc)
-		r.needsNL = true
+		fmt.Print(p.pass, "▪", p.endc)
+		p.needsNL = true
 	case "skip":
-		fmt.Print(skip, "▪", endc)
-		r.needsNL = true
+		fmt.Print(p.skip, "▪", p.endc)
+		p.needsNL = true
 	case "fail":
-		fmt.Printf("%s%s%s", fail, r.uri(ev, "×"), endc)
-		r.needsNL = true
+		fmt.Printf("%s%s%s", p.fail, p.uri(ev.pkg(), "×"), p.endc)
+		p.needsNL = true
+	case "error":
+		fmt.Printf("%s%s%s", p.fail, p.uri(ev.pkg(), "ℯ"), p.endc)
 	}
 }
 
-func (r *quietProgress) summarize(ss *summary) {
-	if r.needsNL {
+func (p *quietProgress) summarize(ss *summary) {
+	if p.needsNL {
 		fmt.Println()
 	}
 	var s []string
 	if ss.tests.skipped > 0 {
-		s = append(s, fmt.Sprintf("%d %sskipped%s", ss.tests.skipped, skip, endc))
+		s = append(s, fmt.Sprintf("%d %sskipped%s", ss.tests.skipped, p.skip, p.endc))
 	}
 	if ss.tests.failed > 0 {
-		s = append(s, fmt.Sprintf("%d %sfailed%s", ss.tests.failed, fail, endc))
+		s = append(s, fmt.Sprintf("%d %sfailed%s", ss.tests.failed, p.fail, p.endc))
 	}
 	if ss.tests.passed > 0 {
-		s = append(s, fmt.Sprintf("%d %spassed%s", ss.tests.passed, pass, endc))
+		s = append(s, fmt.Sprintf("%d %spassed%s", ss.tests.passed, p.pass, p.endc))
 	}
 	if len(s) > 0 {
 		fmt.Print(strings.Join(s, ", "), ". ")
 	}
-	fmt.Println(" ", ss.big(&fonts.double)[0])
+	fmt.Println(" ", ss.big(&p.escape, &fonts.double)[0])
 }
 
 // disparage is long for 'diss'.
-func disparage() {
+func disparage(esc *escape) {
 	rand.Seed(time.Now().UnixNano())
 	disses := [...]string{
 		"Below is a catalogue of your failures.",
@@ -355,7 +403,7 @@ func disparage() {
 		"One should not fear failure. But oh, dear.",
 		"Once more unto the breach, dear friends, once more.",
 		"Aw, bless.",
-		"No, no, I'm laughing \033[3mwith\033[23m you.",
+		"No, no, I'm laughing " + esc.em("with") + " you.",
 	}
 
 	fmt.Print("\n", disses[rand.Intn(len(disses))], "\n\n")
@@ -403,13 +451,16 @@ func mkContext() context.Context {
 	return ctx
 }
 
+var failRx = regexp.MustCompile(`^FAIL\s+(\S+)\s*.*`)
+
 func main() {
 	log.SetFlags(0)
 	ctx := mkContext()
 
 	var stream io.Reader
-	var progress progressReporter = (*defaultProgress)(nil)
+	var progress progressReporter
 	var sums summary
+	escOverride := os.Getenv("GOCTEST_ESC")
 	prefix := unsetPrefix
 	compiled := ""
 
@@ -419,30 +470,52 @@ func main() {
 loop:
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
-		switch arg {
-		case "--":
-			args = append(args, os.Args[i+1:]...)
-			break loop
-		case "-trim":
-			i++
-			prefix = os.Args[i]
-		case "-":
-			stream = os.Stdin
-		case "-q":
-			progress = &quietProgress{}
-		case "-v":
-			progress = (*verboseProgress)(nil)
-		case "-c":
-			i++
-			compiled = os.Args[i]
-		case "-json":
-		case "-h", "-help", "--help":
-			fmt.Print(usage[1:])
-			return
-		default:
-			args = append(args, arg)
+		if idx := strings.IndexByte(arg, '='); idx > -1 {
+			v := arg[idx+1:]
+			switch arg[:idx] {
+			case "-esc":
+				escOverride = v
+			case "-trim":
+				prefix = v
+			case "-c":
+				compiled = v
+			default:
+				args = append(args, arg)
+			}
+		} else {
+			switch arg {
+			case "--":
+				args = append(args, os.Args[i+1:]...)
+				break loop
+			case "-esc":
+				i++
+				escOverride = os.Args[i]
+			case "-trim":
+				i++
+				prefix = os.Args[i]
+			case "-":
+				stream = os.Stdin
+			case "-q":
+				progress = &quietProgress{}
+			case "-v":
+				progress = &verboseProgress{seenFails: map[string]bool{}}
+			case "-c":
+				i++
+				compiled = os.Args[i]
+			case "-json":
+			case "-h", "-help", "--help":
+				fmt.Print(usage[1:])
+				return
+			default:
+				args = append(args, arg)
+			}
 		}
 	}
+	if progress == nil {
+		progress = &defaultProgress{}
+	}
+	esc := progress.setEscape(escOverride)
+
 	if prefix == unsetPrefix {
 		// don't give up hope
 		out, err := exec.CommandContext(ctx, "go", "list", "-m").Output()
@@ -477,21 +550,50 @@ loop:
 		if err != nil {
 			log.Fatal(err)
 		}
+		if compiled == "" {
+			cmd.Stderr = cmd.Stdout
+		}
 		err = cmd.Start()
 		if err != nil {
 			log.Fatal(err)
 		}
 		stream = pipe
 	}
-	dec := json.NewDecoder(stream)
-	var fails []*TestEvent
 
-	inProgress := map[string][]*TestEvent{}
-	for dec.More() {
-		ev := TestEvent{}
-		err := dec.Decode(&ev)
-		if err != nil {
-			log.Fatal(err)
+	var fails []string
+	inProgress := map[string][]string{}
+	// if it weren't for those pesky non-JSON lines, we could just
+	//     dec := json.NewDecoder(stream)
+	//     for dec.More() { ...
+	// TODO: file a bug with Go about the non-JSON lines in JSON output
+	scanner := bufio.NewScanner(stream)
+	for scanner.Scan() {
+		var ev TestEvent
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		if line[0] == '{' {
+			err := json.Unmarshal(line, &ev)
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			if m := failRx.FindSubmatch(line); m != nil {
+				// fake it
+				ev = TestEvent{
+					Action:  "error",
+					Package: string(m[1]),
+					Output:  string(line) + "\n",
+					Test:    errorPlaceholder,
+				}
+			} else {
+				ev = TestEvent{
+					Action: "output",
+					Output: string(line) + "\n",
+					Test:   errorPlaceholder,
+				}
+			}
 		}
 		if prefix == unsetPrefix {
 			// take a wild guess
@@ -507,10 +609,17 @@ loop:
 
 		if ev.Test != "" {
 			name := ev.name()
-
 			switch ev.Action {
 			default:
-				inProgress[name] = append(inProgress[name], &ev)
+				if ev.Output != "" {
+					inProgress[name] = append(inProgress[name], ev.Output)
+				}
+			case "error":
+				name = errorPlaceholder
+				if ev.Output != "" {
+					inProgress[name] = append(inProgress[name], ev.Output)
+				}
+				fallthrough
 			case "fail":
 				fails = append(fails, inProgress[name]...)
 				fallthrough
@@ -519,12 +628,14 @@ loop:
 			}
 		}
 	}
-	fmt.Println()
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
 	progress.summarize(&sums)
 	if len(fails) > 0 {
-		disparage()
+		disparage(esc)
 		for _, ev := range fails {
-			fmt.Print(ev.Output)
+			fmt.Print(ev)
 		}
 	}
 }
