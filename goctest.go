@@ -358,16 +358,16 @@ func (p *quietProgress) report(ev *TestEvent) {
 	}
 	switch ev.Action {
 	case "pass":
-		fmt.Print(p.pass, "▪", p.endc)
+		fmt.Print(p.pass, "•", p.endc)
 		p.needsNL = true
 	case "skip":
-		fmt.Print(p.skip, "▪", p.endc)
+		fmt.Print(p.skip, "•", p.endc)
 		p.needsNL = true
 	case "fail":
 		fmt.Printf("%s%s%s", p.fail, p.uri(ev.pkg(), "×"), p.endc)
 		p.needsNL = true
 	case "error":
-		fmt.Printf("%s%s%s", p.fail, p.uri(ev.pkg(), "ℯ"), p.endc)
+		fmt.Printf("%s%s%s", p.fail, p.uri(ev.pkg(), "e"), p.endc)
 	}
 }
 
@@ -594,6 +594,7 @@ loop:
 					Test:   errorPlaceholder,
 				}
 			}
+			fmt.Fprintln(os.Stderr, string(line))
 		}
 		if prefix == unsetPrefix {
 			// take a wild guess

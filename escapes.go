@@ -113,11 +113,14 @@ func guessEscape(override string) *escape {
 		return escapes[monoEsc]
 	}
 	// ok, so no NO_COLOR. Let's look at TERM next.
+	// TODO: use terminfo, like a baws :-)
 	term := os.Getenv("TERM")
 	if term == "" || term == "dumb" {
 		return escapes[bareEsc]
 	}
-	// TODO: use terminfo, like a baws :-)
+	if term == "linux" || term == "xterm-256color" {
+		return escapes[fullEsc]
+	}
 	if os.Getenv("COLORTERM") == "truecolor" {
 		return escapes[fullEsc]
 	}
