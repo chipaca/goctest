@@ -29,18 +29,12 @@ const (
 	errorPlaceholder = " -(error)- "
 
 	usage = `
-goctest [-q|-v] [-c (a.test|-)] [-trim prefix] [-|go help arguments]
+goctest [-q|-v] [-c (a.test|-)] [more goctest flags...] [-|go help arguments]
 
 The ‘-q’ and ‘-v’ flags control the amount of progress reporting:
  -q  quieter: one character per package.
  -v  verbose: one line per test (or skipped package).
 Without -q nor -v, progress is reported at one line per package.
-
-The ‘-trim’ flag allows you to specify a prefix to remove from package names.
-If not given it defaults to the output of ‘go list -m’. If that fails (e.g.
-because you're not running in a module) it's adjusted on the fly to be the
-longest common prefix of package names reported by the test runner. This
-means the very first test will get it wrong. In a pinch you can ‘-trim ""’.
 
 The ‘-’ flag tells goctest to read the JSON output of a test result from stdin.
 For example, you could do
@@ -61,6 +55,25 @@ If the argument to ‘-c’ is ‘-’, then read plain (non-JSON) input from st
 
 but note that unless the tests were run with ‘-v’, the output is going to be
 slightly off from wht you'd expect (and even with it, it's not great).
+
+The above flags should do most of the work already. The remaining flags all
+start with a double dash, with the hopes that this will minimise collisions
+with ‘go test’ itself:
+
+‘--esc’: this, or the environment variable GOCTEST_ESC, can be used to override
+goctest's decision about which escape sequence mode to use. As this decision
+depends on multiple envrionment variables, it can sometimes be wrong. The
+existing modes are:
+  - ‘full’: uses 24-bit colour, italics, and URLs;
+  - ‘mono’: no colour; bold, dim, reverse video, and italics, and URLs; and
+  - ‘bare’: no escapes at all; lastly,
+  - ‘test’: for testing.
+
+‘--trim’: allows you to specify a prefix to remove from package names.
+If not given it defaults to the output of ‘go list -m’. If that fails (e.g.
+because you're not running in a module) it's adjusted on the fly to be the
+longest common prefix of package names reported by the test runner. This
+means the very first test will get it wrong. In a pinch you can ‘--trim ""’.
 
 Lastly, the ‘--’ flag tells goctest to stop looking at its arguments and get
 on with it.
@@ -473,9 +486,9 @@ loop:
 		if idx := strings.IndexByte(arg, '='); idx > -1 {
 			v := arg[idx+1:]
 			switch arg[:idx] {
-			case "-esc":
+			case "--esc":
 				escOverride = v
-			case "-trim":
+			case "--trim":
 				prefix = v
 			case "-c":
 				compiled = v
@@ -487,10 +500,10 @@ loop:
 			case "--":
 				args = append(args, os.Args[i+1:]...)
 				break loop
-			case "-esc":
+			case "--esc":
 				i++
 				escOverride = os.Args[i]
-			case "-trim":
+			case "--trim":
 				i++
 				prefix = os.Args[i]
 			case "-":
@@ -622,6 +635,10 @@ loop:
 				}
 				fallthrough
 			case "fail":
+				// XXX: put this behind a flag
+				for _, ev := range inProgress[name] {
+					fmt.Print(ev)
+				}
 				fails = append(fails, inProgress[name]...)
 				fallthrough
 			case "pass", "skip":

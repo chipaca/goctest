@@ -1,5 +1,7 @@
 # goctest
 
+    go install chipaca.com/goctest@latest
+
 See what it looks like with no further arguments:
 
 ![a screencast of goctest 0.2.1 running a test suite, in default mode](img/default.gif)
@@ -58,18 +60,12 @@ A couple of things.
 
 Here's the output of `goctest -h`:
 
-    goctest [-q|-v] [-c (a.test|-)] [-trim prefix] [-|go help arguments]
+    goctest [-q|-v] [-c (a.test|-)] [more goctest flags...] [-|go help arguments]
 
     The ‘-q’ and ‘-v’ flags control the amount of progress reporting:
      -q  quieter: one character per package.
      -v  verbose: one line per test (or skipped package).
     Without -q nor -v, progress is reported at one line per package.
-
-    The ‘-trim’ flag allows you to specify a prefix to remove from package names.
-    If not given it defaults to the output of ‘go list -m’. If that fails (e.g.
-    because you're not running in a module) it's adjusted on the fly to be the
-    longest common prefix of package names reported by the test runner. This
-    means the very first test will get it wrong. In a pinch you can ‘-trim ""’.
 
     The ‘-’ flag tells goctest to read the JSON output of a test result from stdin.
     For example, you could do
@@ -90,6 +86,25 @@ Here's the output of `goctest -h`:
 
     but note that unless the tests were run with ‘-v’, the output is going to be
     slightly off from wht you'd expect (and even with it, it's not great).
+
+    The above flags should do most of the work already. The remaining flags all
+    start with a double dash, with the hopes that this will minimise collisions
+    with ‘go test’ itself:
+
+    ‘--esc’: this, or the environment variable GOCTEST_ESC, can be used to override
+    goctest's decision about which escape sequence mode to use. As this decision
+    depends on multiple envrionment variables, it can sometimes be wrong. The
+    existing modes are:
+      - ‘full’: uses 24-bit colour, italics, and URLs;
+      - ‘mono’: no colour; bold, dim, reverse video, and italics, and URLs; and
+      - ‘bare’: no escapes at all; lastly,
+      - ‘test’: for testing.
+
+    ‘--trim’: allows you to specify a prefix to remove from package names.
+    If not given it defaults to the output of ‘go list -m’. If that fails (e.g.
+    because you're not running in a module) it's adjusted on the fly to be the
+    longest common prefix of package names reported by the test runner. This
+    means the very first test will get it wrong. In a pinch you can ‘--trim ""’.
 
     Lastly, the ‘--’ flag tells goctest to stop looking at its arguments and get
     on with it.
